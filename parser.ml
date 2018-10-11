@@ -1,10 +1,12 @@
 type token = Left_paren| Right_paren| Minus| Plus| Div| Mul |Pow| Comma
-              | Identifier of string| Number of int | Print
+              | Identifier of string| Number of int | Print | EOL |Let
+              | Equal
 
 type tuple = BaseTuple of expr | NextTuple of expr * tuple
 and
 expr =
   | NumExp of int
+  | VarExp of string
   | Unary of token * expr
   | Binary of expr * token * expr
   | Tuple of tuple
@@ -24,6 +26,7 @@ type prog = stmt list
 let rec primary tokens = match tokens with
   | [] -> failwith "Tokens are empty"
   | (Number x)::xs -> (NumExp x), xs
+  | (Identifier x)::xs -> (VarExp x), xs
   | Left_paren::xs ->
       let e, tokens = expression xs in
       if tokens = [] || (List.hd tokens) <> Right_paren then failwith "')' missing!"
@@ -73,10 +76,7 @@ and tuple tokens =
                   (
                     match m with
                       | Tuple a -> aux (Tuple (NextTuple (e, a))) t
-                      | NumExp a -> aux (Tuple (NextTuple (e, BaseTuple (NumExp a)))) t
-                      | Unary (a,b) -> aux (Tuple (NextTuple (e, BaseTuple (Unary (a,b))))) t
-                      | Binary (a,b,c) -> aux (Tuple (NextTuple (e,BaseTuple (Binary (a,b,c))))) t
-                      | Grouping a -> aux (Tuple (NextTuple (e,BaseTuple (Grouping a)))) t
+                      | x -> aux (Tuple (NextTuple (e, BaseTuple x))) t
                   )
                 else e,t
   in
@@ -86,12 +86,25 @@ and expression tokens = tuple tokens
 and statement tokens = match tokens with
   | [] -> []
   | x::xs -> (
+    let current_line,next_line = split_eol xs in
     match x with
       | Print ->
-        let e,_ = expression xs in
-        [PrintStmt e]
+        let e,_ = expression current_line in
+        (PrintStmt e)::(statement next_line)
+      | Let ->
+        let s = (match List.hd current_line with | Identifier x -> x | _ -> failwith "Identifier expected.") in let current_line = List.tl current_line in
+        if not ((List.hd current_line) = Equal) then failwith "Equal is missing." else
+        let current_line = List.tl current_line in
+        let e,_ = expression current_line in
+        (AssignStmt (s, e))::(statement next_line)
     )
 and parse tokens = statement tokens
+and split_eol l = match l with
+  | [] -> [],[]
+  | x::xs ->
+    if x = EOL then [],xs else
+    let a,b = split_eol xs in
+    x::a,b
 
 let pow x y =
   let rec aux y a =
