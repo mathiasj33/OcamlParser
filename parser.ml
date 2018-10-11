@@ -1,3 +1,5 @@
+open Util
+
 type token = Left_paren| Right_paren| Minus| Plus| Div| Mul |Pow| Comma
               | Identifier of string| Number of int | Print | EOL |Let
               | Equal
@@ -92,7 +94,9 @@ and statement tokens = match tokens with
         let e,_ = expression current_line in
         (PrintStmt e)::(statement next_line)
       | Let ->
-        let s = (match List.hd current_line with | Identifier x -> x | _ -> failwith "Identifier expected.") in let current_line = List.tl current_line in
+        let s = (match List.hd current_line with
+                | Identifier x -> x | _ -> failwith "Identifier expected.") in
+        let current_line = List.tl current_line in
         if not ((List.hd current_line) = Equal) then failwith "Equal is missing." else
         let current_line = List.tl current_line in
         let e,_ = expression current_line in
@@ -116,40 +120,53 @@ let unpackNumValue x = match x with
   | NumValue y -> y
   | _ -> failwith "wrong unpack!"
 
-let rec eval_expr e = match e with
+let rec eval_expr e env = match e with
   | NumExp x -> NumValue x
-  | Unary (_,x) -> NumValue (- unpackNumValue (eval_expr x))
+  | VarExp x -> List.assoc x env
+  | Unary (_,x) -> NumValue (- unpackNumValue (eval_expr x env))
   | Binary (x,t,y) ->
       let op = match t with Minus -> (-) | Plus -> (+) | Div -> (/) | Mul -> ( * ) | Pow -> pow in
-      NumValue (op (unpackNumValue (eval_expr x)) (unpackNumValue (eval_expr y)))
+      NumValue (op (unpackNumValue (eval_expr x env)) (unpackNumValue (eval_expr y env)))
   | Tuple l -> TupleValue (
     let rec aux l =
       match l with
-      | BaseTuple t -> [eval_expr t]
-      | NextTuple (t, ts) -> (eval_expr t)::(aux ts)
+      | BaseTuple t -> [eval_expr t env]
+      | NextTuple (t, ts) -> (eval_expr t env)::(aux ts)
     in aux l
     )
-  | Grouping x -> eval_expr x
+  | Grouping x -> eval_expr x env
 
 let rec print_value v = match v with
   | NumValue x -> print_int x
   | StringValue x -> print_string x
   | TupleValue l ->
-    let rec aux l = match l with
+    let rec aux l = (match l with
       | [] -> ()
-      | x::xs -> print_value x; print_string ","; aux xs
+      | [x] -> print_value x  (*for the last entry in the list*)
+      | x::xs -> print_value x; print_string ","; aux xs)
     in print_string "("; aux l; print_string ")"
 
-let print_expr e = print_value (eval_expr e)
+let rec print_value_newline v = print_value v; print_newline ()
 
-let rec eval p = match p with
+let print_expr e env = print_value_newline (eval_expr e env)
+
+let rec eval p env = match p with
   | [] -> ()
-  | x::xs -> (
+  | x::xs -> let env = (
     match x with
-      | PrintStmt e -> print_expr e
+      | PrintStmt e -> (print_expr e env); env
+      | AssignStmt (x,e) -> update_assoc (x, eval_expr e env) env
       | _ -> failwith "Not implemented"
-    ); eval xs
+    ) in eval xs env
 
-let main = eval (parse [Print; Number 5; Plus; Number 2; Comma; Number 5; Pow; Number 3])
+let test_program =
+[Let; Identifier "x"; Equal; Number 5; Plus; Number 2; Comma; Number 5; Pow; Number 3; EOL;
+Let; Identifier "y"; Equal; Number 7; EOL;
+Print; Identifier "y"; Plus; Identifier "y"; EOL;
+Print; Identifier "x"; EOL;
+Let; Identifier "x"; Equal; Number 163; EOL;
+Print; Identifier "x"; Pow; Number 2; Minus; Identifier "y"]
+
+let main = eval (parse test_program) []
 
 let () = main
