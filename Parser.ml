@@ -6,6 +6,7 @@ let rec primary tokens = match tokens with
   | [] -> failwith "Tokens are empty"
   | (Number x)::xs -> (NumExp x), xs
   | (Identifier x)::xs -> (VarExp x), xs
+  | (Boolean x)::xs -> (BoolExp x), xs
   | Left_paren::xs ->
       let e, tokens = expression xs in
       if tokens = [] || (List.hd tokens) <> Right_paren then failwith "')' missing!"
@@ -61,7 +62,37 @@ and tuple tokens =
   in
   let m,tokens = addition tokens in
   aux m tokens
-and expression tokens = tuple tokens
+and comparison tokens =
+  let rec aux e t = match t with
+    | [] -> e, t
+    | x::xs -> if x = L || x = Leq || x = G || x = Geq then
+                  let m, t = tuple xs in
+                  aux (Comp (e, x, m)) t
+               else e,t
+   in
+   let m, tokens = tuple tokens in
+   aux m tokens
+ and boolOp tokens =
+   let rec aux e t = match t with
+     | [] -> e, t
+     | x::xs -> if x = And || x = Or then
+                   let m, t = comparison xs in
+                   aux (BoolBinary (e, x, m)) t
+                else e,t
+    in
+    let m, tokens = comparison tokens in
+    aux m tokens
+and equality tokens =
+  let rec aux e t = match t with
+    | [] -> e, t
+    | x::xs -> if x = EqualEqual then
+                  let m, t = boolOp xs in
+                  aux (EqualBinary (e, m)) t
+               else e,t
+   in
+   let m, tokens = boolOp tokens in
+   aux m tokens
+and expression tokens = equality tokens
 and statement tokens = match tokens with
   | [] -> []
   | x::xs -> (
@@ -97,13 +128,26 @@ let unpackNumValue x = match x with
   | NumValue y -> y
   | _ -> failwith "wrong unpack!"
 
+let unpackBoolValue x = match x with
+  | BoolValue y -> y
+  | _ -> failwith "wrong unpack!"
+
 let rec eval_expr e env = match e with
   | NumExp x -> NumValue x
   | VarExp x -> List.assoc x env
+  | BoolExp x -> BoolValue x
   | Unary (_,x) -> NumValue (- unpackNumValue (eval_expr x env))
   | Binary (x,t,y) ->
       let op = match t with Minus -> (-) | Plus -> (+) | Div -> (/) | Mul -> ( * ) | Pow -> pow in
       NumValue (op (unpackNumValue (eval_expr x env)) (unpackNumValue (eval_expr y env)))
+  | Comp (x,t,y) ->
+    let op = match t with L -> (<) | Leq -> (<=) | G -> (>) | Geq -> (>=) in
+    BoolValue (op (unpackNumValue (eval_expr x env)) (unpackNumValue (eval_expr y env)))
+  | BoolBinary (x,t,y) ->
+    let op = match t with And -> (&&) | Or -> (||) in
+    BoolValue (op (unpackBoolValue (eval_expr x env)) (unpackBoolValue (eval_expr y env)))
+  | EqualBinary (x,y) ->
+    BoolValue ((eval_expr x env) = (eval_expr y env))
   | Tuple l -> TupleValue (
     let rec aux l =
       match l with
@@ -116,6 +160,7 @@ let rec eval_expr e env = match e with
 let rec print_value v = match v with
   | NumValue x -> print_int x
   | StringValue x -> print_string x
+  | BoolValue x -> (match x with true -> print_string "true" | false -> print_string "false")
   | TupleValue l ->
     let rec aux l = (match l with
       | [] -> ()
@@ -137,12 +182,22 @@ let rec eval p env = match p with
     ) in eval xs env
 
 let test_program =
-"let x = 5 + 2, 5^3
- let test = 7
- print x
- print test+test
- let x = 163
- print x^2-test"
+"let x = 5
+ let y = false
+ let z = y or true
+ print z
+ let xx = x > 3
+ print xx
+ let xy = 10 > 11 -5
+ print xy == xx
+ print 5 < 3 == 2*3 > 5"
+
+(*let z = y or true
+print z
+let xx = x > 3
+print xx
+let xy = 10 > 11 -5
+print xy == xx*)
 
 let main = eval (parse (lex test_program)) []
 
